@@ -8,6 +8,7 @@
 #include "PrimitiveFactory.h"
 #include "Camera.h"
 #include "LightManager.h"
+#include "Texture.h"
 
 #include <iostream>
 #include <sstream>
@@ -24,7 +25,6 @@ float lastX = SCR_WIDTH * 0.5f, lastY = SCR_HEIGHT * 0.5f;
 bool firstMouse = true;
 bool mouseCaptured = true;
 
-// Состояние зелья (Core темы 15)
 float liquidLevel = 0.45f;
 float targetLiquidLevel = 0.45f;
 glm::vec3 currentPotionColor(0.55f, 0.20f, 0.90f);
@@ -38,6 +38,7 @@ struct MaterialParams {
     float alpha = 1.0f;
     float emissive = 0.0f;
     float clipY = 999.0f;
+    glm::vec2 texScale = glm::vec2(1.0f, 1.0f);
 };
 
 void addIngredient(const glm::vec3& ingColor) {
@@ -96,15 +97,26 @@ void processMovement(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) camera.ProcessKeyboard(CameraMove::DOWN, dt);
 }
 
-void drawMesh(const Shader& shader, const Mesh& mesh, const glm::mat4& model,
-    const glm::vec3& color, const MaterialParams& mat = MaterialParams{}) {
+void drawMesh(const Shader& shader, const Mesh& mesh, const Texture& tex,
+    const glm::mat4& model, const glm::vec3& color,
+    const MaterialParams& mat = MaterialParams{}) {
+    tex.Bind(0);
     shader.setMat4("u_Model", model);
     shader.setVec3("u_ObjectColor", color);
+    shader.setVec2("u_TexScale", mat.texScale);
     shader.setFloat("u_Shininess", mat.shininess);
     shader.setFloat("u_SpecularStrength", mat.specStrength);
     shader.setFloat("u_Alpha", mat.alpha);
     shader.setFloat("u_Emissive", mat.emissive);
     shader.setFloat("u_ClipY", mat.clipY);
+    mesh.Draw();
+}
+
+void drawGlass(const Shader& shader, const Mesh& mesh, const glm::mat4& model,
+    const glm::vec3& tint = { 0.85f, 0.94f, 1.0f }, float baseAlpha = 0.11f) {
+    shader.setMat4("u_Model", model);
+    shader.setVec3("u_GlassTint", tint);
+    shader.setFloat("u_BaseAlpha", baseAlpha);
     mesh.Draw();
 }
 
@@ -133,9 +145,20 @@ int main() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     Shader phongShader("phong.vert", "phong.frag");
+    Shader glassShader("glass.vert", "glass.frag");
+    phongShader.use();
+    phongShader.setInt("u_DiffuseMap", 0);
+
     LightManager lightManager;
 
-    // 1. Процедурные меши
+    // 1. Текстуры с мипмаппингом (создаются один раз до главного цикла — R5, B4)
+    Texture texWhite = Texture::CreateWhite();
+    Texture texWood = Texture::CreateWoodPlanks(512);
+    Texture texStone = Texture::CreateStoneBricks(512);
+    Texture texLeather = Texture::CreateLeatherBook(256);
+    Texture texParchment = Texture::CreateParchment(256);
+
+    // 2. Процедурные меши
     Mesh cube = PrimitiveFactory::CreateCube();
     Mesh cylinder = PrimitiveFactory::CreateCylinder(0.5f, 0.5f, 1.0f, 32);
     Mesh sphere = PrimitiveFactory::CreateSphere(0.5f, 20, 28);
@@ -169,14 +192,15 @@ int main() {
     };
     Mesh tripodRing = PrimitiveFactory::CreateLatheMesh(ringProfile, 36);
 
-    // Пресеты материалов для реалистичных бликов Blinn-Phong
-    const MaterialParams matStone = { 8.0f,   0.10f, 1.0f, 0.0f, 999.0f };
-    const MaterialParams matWood = { 24.0f,  0.28f, 1.0f, 0.0f, 999.0f };
-    const MaterialParams matBook = { 12.0f,  0.15f, 1.0f, 0.0f, 999.0f };
-    const MaterialParams matMetal = { 64.0f,  0.85f, 1.0f, 0.0f, 999.0f };
-    const MaterialParams matWax = { 16.0f,  0.22f, 1.0f, 0.0f, 999.0f };
-    const MaterialParams matFlame = { 1.0f,   0.00f, 1.0f, 1.8f, 999.0f };
-    const MaterialParams matGlass = { 128.0f, 1.35f, 0.24f, 0.05f, 999.0f };
+    // Пресеты материалов с корректным масштабом текстур (защита от растяжений UV — A4)
+    const MaterialParams matStoneWall = { 8.0f,  0.10f, 1.0f, 0.0f, 999.0f, {3.5f, 2.0f} };
+    const MaterialParams matStoneFloor = { 10.0f, 0.12f, 1.0f, 0.0f, 999.0f, {4.0f, 3.0f} };
+    const MaterialParams matWoodTable = { 28.0f, 0.30f, 1.0f, 0.0f, 999.0f, {2.0f, 1.2f} };
+    const MaterialParams matWoodSmall = { 24.0f, 0.25f, 1.0f, 0.0f, 999.0f, {1.0f, 1.0f} };
+    const MaterialParams matBook = { 14.0f, 0.18f, 1.0f, 0.0f, 999.0f, {1.0f, 1.0f} };
+    const MaterialParams matMetal = { 64.0f, 0.85f, 1.0f, 0.0f, 999.0f, {1.0f, 1.0f} };
+    const MaterialParams matWax = { 16.0f, 0.22f, 1.0f, 0.0f, 999.0f, {1.0f, 1.0f} };
+    const MaterialParams matFlame = { 1.0f,  0.00f, 1.0f, 1.8f, 999.0f, {1.0f, 1.0f} };
 
     struct CandleDef { glm::vec3 pos; float h; };
     CandleDef candles[3] = {
@@ -218,71 +242,71 @@ int main() {
         }
         glm::vec3 potionLightPos(0.0f, flaskBaseY + 0.12f + 0.45f * liquidLevel, 0.0f);
 
-        phongShader.use();
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f);
+
+        lightManager.Update(now, candlesLit, flamePositions, potionLightPos, currentPotionColor, liquidLevel);
+
+        // === ПРОХОД 1: НЕПРОЗРАЧНЫЕ И ТЕКСТУРИРОВАННЫЕ ОБЪЕКТЫ (Blinn-Phong) ===
+        phongShader.use();
         phongShader.setMat4("u_View", view);
         phongShader.setMat4("u_Projection", proj);
         phongShader.setVec3("u_ViewPos", camera.Position);
-
-        lightManager.Update(now, candlesLit, flamePositions, potionLightPos, currentPotionColor, liquidLevel);
         lightManager.ApplyToShader(phongShader);
 
-        // === ПРОХОД 1: НЕПРОЗРАЧНАЯ СЦЕНА ===
+        // 1. Комната (текстурированная каменная кладка)
+        drawMesh(phongShader, cube, texStone, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f, -1.25f,  0.0f }), { 9.0f, 0.1f, 7.0f }), { 0.85f, 0.85f, 0.90f }, matStoneFloor);
+        drawMesh(phongShader, cube, texStone, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f,  1.20f, -2.1f }), { 9.0f, 5.0f, 0.2f }), { 0.95f, 0.93f, 0.98f }, matStoneWall);
+        drawMesh(phongShader, cube, texStone, glm::scale(glm::translate(glm::mat4(1.0f), { -4.4f, 1.20f,  0.5f }), { 0.2f, 5.0f, 7.0f }), { 0.88f, 0.86f, 0.92f }, matStoneWall);
+        drawMesh(phongShader, cube, texStone, glm::scale(glm::translate(glm::mat4(1.0f), { 4.4f, 1.20f,  0.5f }), { 0.2f, 5.0f, 7.0f }), { 0.88f, 0.86f, 0.92f }, matStoneWall);
 
-        // 1. Комната (пол, каменные стены и полка)
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f, -1.25f,  0.0f }), { 9.0f, 0.1f, 7.0f }), { 0.22f, 0.21f, 0.23f }, matStone);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f,  1.20f, -2.1f }), { 9.0f, 5.0f, 0.2f }), { 0.28f, 0.27f, 0.30f }, matStone);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { -4.4f, 1.20f,  0.5f }), { 0.2f, 5.0f, 7.0f }), { 0.25f, 0.24f, 0.27f }, matStone);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { 4.4f, 1.20f,  0.5f }), { 0.2f, 5.0f, 7.0f }), { 0.25f, 0.24f, 0.27f }, matStone);
+        drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(glm::mat4(1.0f), { -1.3f, 1.25f, -1.82f }), { 2.4f, 0.09f, 0.45f }), { 0.95f, 0.90f, 0.85f }, matWoodSmall);
+        drawMesh(phongShader, cube, texLeather, glm::scale(glm::translate(glm::mat4(1.0f), { -2.1f, 1.45f, -1.80f }), { 0.12f, 0.32f, 0.26f }), { 0.55f, 0.18f, 0.15f }, matBook);
+        drawMesh(phongShader, cube, texLeather, glm::scale(glm::translate(glm::mat4(1.0f), { -1.94f,1.43f, -1.80f }), { 0.10f, 0.28f, 0.24f }), { 0.22f, 0.36f, 0.48f }, matBook);
 
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { -1.3f, 1.25f, -1.82f }), { 2.4f, 0.09f, 0.45f }), { 0.34f, 0.21f, 0.13f }, matWood);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { -2.1f, 1.45f, -1.80f }), { 0.12f, 0.32f, 0.26f }), { 0.45f, 0.16f, 0.14f }, matBook);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { -1.94f,1.43f, -1.80f }), { 0.10f, 0.28f, 0.24f }), { 0.20f, 0.32f, 0.40f }, matBook);
-
-        // 2. Стол
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f, -0.09f, 0.0f }), { 4.6f, 0.18f, 2.6f }), { 0.38f, 0.24f, 0.14f }, matWood);
+        // 2. Стол (текстурированные деревянные доски)
+        drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(glm::mat4(1.0f), { 0.0f, -0.09f, 0.0f }), { 4.6f, 0.18f, 2.6f }), { 1.0f, 0.95f, 0.90f }, matWoodTable);
         float legX[2] = { -2.05f, 2.05f }, legZ[2] = { -1.05f, 1.05f };
         for (int ix = 0; ix < 2; ++ix)
             for (int iz = 0; iz < 2; ++iz)
-                drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), { legX[ix], -0.68f, legZ[iz] }), { 0.18f, 1.05f, 0.18f }), { 0.28f, 0.18f, 0.10f }, matWood);
+                drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(glm::mat4(1.0f), { legX[ix], -0.68f, legZ[iz] }), { 0.18f, 1.05f, 0.18f }), { 0.82f, 0.78f, 0.72f }, matWoodSmall);
 
         // 3. Железная тренога под главной колбой
-        drawMesh(phongShader, tripodRing, glm::translate(glm::mat4(1.0f), { 0.0f, flaskBaseY, 0.0f }), { 0.26f, 0.28f, 0.32f }, matMetal);
+        drawMesh(phongShader, tripodRing, texWhite, glm::translate(glm::mat4(1.0f), { 0.0f, flaskBaseY, 0.0f }), { 0.26f, 0.28f, 0.32f }, matMetal);
         for (int i = 0; i < 3; ++i) {
             float angle = glm::radians(i * 120.0f + 30.0f);
             glm::mat4 leg = glm::translate(glm::mat4(1.0f), { 0.34f * std::cos(angle), 0.0f, 0.34f * std::sin(angle) });
             leg = glm::rotate(leg, -angle, { 0, 1, 0 });
             leg = glm::rotate(leg, glm::radians(10.0f), { 0, 0, 1 });
-            drawMesh(phongShader, cylinder, glm::scale(leg, { 0.045f, flaskBaseY + 0.03f, 0.045f }), { 0.24f, 0.26f, 0.30f }, matMetal);
+            drawMesh(phongShader, cylinder, texWhite, glm::scale(leg, { 0.045f, flaskBaseY + 0.03f, 0.045f }), { 0.24f, 0.26f, 0.30f }, matMetal);
         }
 
-        // 4. Книги
+        // 4. Книги в кожаных переплётах и раскрытая книга с пергаментом
         glm::mat4 book1 = glm::rotate(glm::translate(glm::mat4(1.0f), { -1.55f, 0.065f, 0.15f }), glm::radians(14.0f), { 0, 1, 0 });
-        drawMesh(phongShader, cube, glm::scale(book1, { 0.65f, 0.13f, 0.85f }), { 0.50f, 0.16f, 0.13f }, matBook);
+        drawMesh(phongShader, cube, texLeather, glm::scale(book1, { 0.65f, 0.13f, 0.85f }), { 0.55f, 0.16f, 0.14f }, matBook);
         glm::mat4 book2 = glm::rotate(glm::translate(glm::mat4(1.0f), { -1.52f, 0.185f, 0.12f }), glm::radians(-6.0f), { 0, 1, 0 });
-        drawMesh(phongShader, cube, glm::scale(book2, { 0.56f, 0.11f, 0.76f }), { 0.20f, 0.30f, 0.46f }, matBook);
+        drawMesh(phongShader, cube, texLeather, glm::scale(book2, { 0.56f, 0.11f, 0.76f }), { 0.22f, 0.34f, 0.52f }, matBook);
         glm::mat4 rightBook = glm::rotate(glm::translate(glm::mat4(1.0f), { 1.48f, 0.04f, 0.35f }), glm::radians(-18.0f), { 0, 1, 0 });
-        drawMesh(phongShader, cube, glm::scale(rightBook, { 0.72f, 0.08f, 0.54f }), { 0.85f, 0.78f, 0.60f }, matBook);
+        drawMesh(phongShader, cube, texParchment, glm::scale(rightBook, { 0.72f, 0.08f, 0.54f }), { 1.0f, 1.0f, 1.0f }, matBook);
 
         // 5. Подсвечники, свечи и пламя
         for (int i = 0; i < 3; ++i) {
             glm::mat4 base = glm::translate(glm::mat4(1.0f), candles[i].pos);
-            drawMesh(phongShader, cylinder, glm::scale(base, { 0.26f, 0.03f, 0.26f }), { 0.35f, 0.30f, 0.22f }, matMetal);
-            drawMesh(phongShader, cylinder, glm::scale(glm::translate(base, { 0, 0.03f, 0 }), { 0.16f, candles[i].h, 0.16f }), { 0.94f, 0.88f, 0.75f }, matWax);
-            drawMesh(phongShader, cylinder, glm::scale(glm::translate(base, { 0, 0.03f + candles[i].h, 0 }), { 0.015f, 0.04f, 0.015f }), { 0.10f, 0.08f, 0.08f }, matStone);
+            drawMesh(phongShader, cylinder, texWhite, glm::scale(base, { 0.26f, 0.03f, 0.26f }), { 0.35f, 0.30f, 0.22f }, matMetal);
+            drawMesh(phongShader, cylinder, texWhite, glm::scale(glm::translate(base, { 0, 0.03f, 0 }), { 0.16f, candles[i].h, 0.16f }), { 0.94f, 0.88f, 0.75f }, matWax);
+            drawMesh(phongShader, cylinder, texWhite, glm::scale(glm::translate(base, { 0, 0.03f + candles[i].h, 0 }), { 0.015f, 0.04f, 0.015f }), { 0.10f, 0.08f, 0.08f }, matStoneWall);
 
             if (candlesLit) {
                 float flicker = 1.0f + 0.12f * std::sin(now * (9.0f + i * 2.7f)) + 0.07f * std::cos(now * 19.0f);
                 glm::mat4 flame = glm::translate(base, { 0.0f, 0.09f + candles[i].h, 0.0f });
                 flame = glm::scale(flame, { 0.055f * flicker, 0.13f * flicker, 0.055f * flicker });
-                drawMesh(phongShader, sphere, flame, { 1.0f, 0.65f, 0.15f }, matFlame);
+                drawMesh(phongShader, sphere, texWhite, flame, { 1.0f, 0.65f, 0.15f }, matFlame);
             }
         }
 
-        // 6. Подставка и 3 маленькие колбы с реагентами
+        // 6. Подставка и содержимое 3 маленьких колб
         glm::vec3 rackCenter(-0.98f, 0.0f, -0.58f);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(glm::mat4(1.0f), rackCenter + glm::vec3(0, 0.025f, 0)), { 0.96f, 0.05f, 0.34f }), { 0.30f, 0.18f, 0.10f }, matWood);
+        drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(glm::mat4(1.0f), rackCenter + glm::vec3(0, 0.025f, 0)), { 0.96f, 0.05f, 0.34f }), { 0.90f, 0.85f, 0.80f }, matWoodSmall);
         glm::vec3 reagentColors[3] = { {0.95f, 0.15f, 0.20f}, {0.15f, 0.35f, 0.98f}, {0.15f, 0.95f, 0.35f} };
         glm::vec3 vialPositions[3] = {
             rackCenter + glm::vec3(-0.30f, 0.05f, 0.0f),
@@ -291,51 +315,59 @@ int main() {
         };
         for (int i = 0; i < 3; ++i) {
             glm::mat4 vm = glm::translate(glm::mat4(1.0f), vialPositions[i]);
-            drawMesh(phongShader, cylinder, glm::scale(glm::translate(vm, { 0.0f, 0.39f, 0.0f }), { 0.085f, 0.075f, 0.085f }), { 0.52f, 0.36f, 0.20f }, matWood);
-            MaterialParams smallLiqMat = { 32.0f, 0.4f, 1.0f, 0.35f, 0.20f };
-            drawMesh(phongShader, smallVialLiquid, vm, reagentColors[i], smallLiqMat);
+            drawMesh(phongShader, cylinder, texWood, glm::scale(glm::translate(vm, { 0.0f, 0.39f, 0.0f }), { 0.085f, 0.075f, 0.085f }), { 1.05f, 0.95f, 0.80f }, matWoodSmall);
+            MaterialParams smallLiqMat = { 32.0f, 0.4f, 1.0f, 0.45f, 0.20f, {1.0f, 1.0f} };
+            drawMesh(phongShader, smallVialLiquid, texWhite, vm, reagentColors[i], smallLiqMat);
             float smallTopR = sampleProfileRadius(smallLiquidProfile, 0.20f);
-            MaterialParams smallCapMat = { 32.0f, 0.4f, 1.0f, 0.45f, 999.0f };
-            drawMesh(phongShader, disk, glm::scale(glm::translate(vm, { 0.0f, 0.20f, 0.0f }), { smallTopR, 1.0f, smallTopR }), reagentColors[i], smallCapMat);
+            MaterialParams smallCapMat = { 32.0f, 0.4f, 1.0f, 0.55f, 999.0f, {1.0f, 1.0f} };
+            drawMesh(phongShader, disk, texWhite, glm::scale(glm::translate(vm, { 0.0f, 0.20f, 0.0f }), { smallTopR, 1.0f, smallTopR }), reagentColors[i], smallCapMat);
         }
 
         // 7. Иерархия Parent -> Child (R3): механический штатив-мешалка
         glm::mat4 standBase = glm::translate(glm::mat4(1.0f), { 0.88f, 0.0f, 0.0f });
-        drawMesh(phongShader, cube, glm::scale(glm::translate(standBase, { 0, 0.05f, 0 }), { 0.42f, 0.10f, 0.42f }), { 0.28f, 0.20f, 0.14f }, matWood);
-        drawMesh(phongShader, cylinder, glm::scale(standBase, { 0.11f, 1.52f, 0.11f }), { 0.36f, 0.27f, 0.19f }, matWood);
+        drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(standBase, { 0, 0.05f, 0 }), { 0.42f, 0.10f, 0.42f }), { 0.85f, 0.80f, 0.75f }, matWoodSmall);
+        drawMesh(phongShader, cylinder, texWood, glm::scale(standBase, { 0.11f, 1.52f, 0.11f }), { 0.95f, 0.90f, 0.85f }, matWoodSmall);
 
         glm::mat4 armPivot = glm::translate(standBase, { 0.0f, 1.44f, 0.0f });
-        drawMesh(phongShader, cube, glm::scale(glm::translate(armPivot, { -0.44f, 0.0f, 0.0f }), { 0.98f, 0.08f, 0.12f }), { 0.42f, 0.29f, 0.18f }, matWood);
+        drawMesh(phongShader, cube, texWood, glm::scale(glm::translate(armPivot, { -0.44f, 0.0f, 0.0f }), { 0.98f, 0.08f, 0.12f }), { 1.0f, 0.95f, 0.88f }, matWoodSmall);
 
         glm::mat4 rotorPivot = glm::rotate(glm::translate(armPivot, { -0.88f, 0.0f, 0.0f }), stirAngle, { 0.0f, 1.0f, 0.0f });
-        drawMesh(phongShader, cylinder, glm::scale(glm::translate(rotorPivot, { 0.0f, -1.10f, 0.0f }), { 0.045f, 1.10f, 0.045f }), { 0.72f, 0.60f, 0.36f }, matMetal);
-        drawMesh(phongShader, cube, glm::scale(glm::translate(rotorPivot, { 0.0f, -1.07f, 0.0f }), { 0.28f, 0.08f, 0.035f }), { 0.72f, 0.60f, 0.36f }, matMetal);
+        drawMesh(phongShader, cylinder, texWhite, glm::scale(glm::translate(rotorPivot, { 0.0f, -1.10f, 0.0f }), { 0.045f, 1.10f, 0.045f }), { 0.72f, 0.60f, 0.36f }, matMetal);
+        drawMesh(phongShader, cube, texWhite, glm::scale(glm::translate(rotorPivot, { 0.0f, -1.07f, 0.0f }), { 0.28f, 0.08f, 0.035f }), { 0.72f, 0.60f, 0.36f }, matMetal);
 
         // 8. Светящаяся жидкость внутри главной колбы
         glm::mat4 mainFlaskM = glm::translate(glm::mat4(1.0f), { 0.0f, flaskBaseY, 0.0f });
         if (liquidLevel > 0.01f) {
             float clipHeight = glm::mix(0.06f, 0.68f, liquidLevel);
-            MaterialParams liqMat = { 48.0f, 0.5f, 1.0f, 0.95f, clipHeight };
-            drawMesh(phongShader, mainFlaskLiquid, mainFlaskM, currentPotionColor, liqMat);
+            MaterialParams liqMat = { 48.0f, 0.5f, 1.0f, 1.00f, clipHeight, {1.0f, 1.0f} };
+            drawMesh(phongShader, mainFlaskLiquid, texWhite, mainFlaskM, currentPotionColor, liqMat);
 
             float surfaceR = sampleProfileRadius(mainLiquidProfile, clipHeight);
             glm::mat4 meniscusM = glm::scale(glm::translate(mainFlaskM, { 0.0f, clipHeight, 0.0f }), { surfaceR, 1.0f, surfaceR });
-            MaterialParams capMat = { 64.0f, 0.6f, 1.0f, 1.15f, 999.0f };
-            drawMesh(phongShader, disk, meniscusM, currentPotionColor * 1.1f, capMat);
+            MaterialParams capMat = { 64.0f, 0.6f, 1.0f, 1.20f, 999.0f, {1.0f, 1.0f} };
+            drawMesh(phongShader, disk, texWhite, meniscusM, currentPotionColor * 1.1f, capMat);
         }
 
-        // === ПРОХОД 2: ПОЛУПРОЗРАЧНОЕ СТЕКЛО ===
+        // === ПРОХОД 2: ПОЛУПРОЗРАЧНОЕ СТЕКЛО С ЭФФЕКТОМ ФРЕНЕЛЯ (Stretch Goal 1) ===
         glDepthMask(GL_FALSE);
+        glassShader.use();
+        glassShader.setMat4("u_View", view);
+        glassShader.setMat4("u_Projection", proj);
+        glassShader.setVec3("u_ViewPos", camera.Position);
+        lightManager.ApplyToShader(glassShader);
 
-        drawMesh(phongShader, smallVialGlass, glm::scale(glm::translate(glm::mat4(1.0f), { -1.25f, 1.30f, -1.80f }), { 1.3f, 1.3f, 1.3f }), { 0.75f, 0.88f, 0.95f }, matGlass);
-        drawMesh(phongShader, smallVialGlass, glm::scale(glm::translate(glm::mat4(1.0f), { -0.80f, 1.30f, -1.78f }), { 1.1f, 1.5f, 1.1f }), { 0.80f, 0.92f, 0.85f }, matGlass);
+        // Декоративные бутылки на задней полке
+        drawGlass(glassShader, smallVialGlass, glm::scale(glm::translate(glm::mat4(1.0f), { -1.25f, 1.30f, -1.80f }), { 1.3f, 1.3f, 1.3f }), { 0.75f, 0.90f, 0.95f }, 0.12f);
+        drawGlass(glassShader, smallVialGlass, glm::scale(glm::translate(glm::mat4(1.0f), { -0.80f, 1.30f, -1.78f }), { 1.1f, 1.5f, 1.1f }), { 0.80f, 0.95f, 0.85f }, 0.12f);
 
+        // Стекло 3 маленьких колб с реагентами
         for (int i = 0; i < 3; ++i) {
             glm::mat4 vm = glm::translate(glm::mat4(1.0f), vialPositions[i]);
-            drawMesh(phongShader, smallVialGlass, vm, { 0.85f, 0.93f, 1.0f }, matGlass);
+            drawGlass(glassShader, smallVialGlass, vm, { 0.86f, 0.94f, 1.0f }, 0.10f);
         }
 
-        drawMesh(phongShader, mainFlaskGlass, mainFlaskM, { 0.85f, 0.93f, 1.0f }, matGlass);
+        // Главная пузатая алхимическая колба
+        drawGlass(glassShader, mainFlaskGlass, mainFlaskM, { 0.88f, 0.95f, 1.0f }, 0.09f);
 
         glDepthMask(GL_TRUE);
 

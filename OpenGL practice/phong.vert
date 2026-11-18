@@ -11,13 +11,13 @@ out vec2 TexCoords;
 uniform mat4 u_Model;
 uniform mat4 u_View;
 uniform mat4 u_Projection;
+uniform vec2 u_TexScale;
 
 void main() {
     vec4 worldPos = u_Model * vec4(aPos, 1.0);
     FragPos = worldPos.xyz;
     LocalPos = aPos;
-    // Матрица нормалей: корректно пересчитывает нормали при неравномерном масштабировании (R4)
     Normal = mat3(transpose(inverse(u_Model))) * aNormal;
-    TexCoords = aTexCoords;
+    TexCoords = aTexCoords * u_TexScale;
     gl_Position = u_Projection * u_View * worldPos;
 }
