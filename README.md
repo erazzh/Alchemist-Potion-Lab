@@ -53,7 +53,7 @@ Real-time interactive 3D OpenGL application built in C++ (OpenGL 3.3 Core Profil
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone [<repository-url>](https://github.com/erazzh/Alchemist-Potion-Lab)
 cd <repository-folder>
 ```
 2. Open `OpenGL practice.sln` in **Visual Studio 2022**.
