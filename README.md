@@ -43,7 +43,7 @@ Real-time interactive 3D OpenGL application built in C++ (OpenGL 3.3 Core Profil
 
 ### Alchemy Recipe Book (3+ Drops)
 - **Void Star Elixir (Purple):** Red + Blue (no Green)
-- **Emerald Flame (Neon Green):** 3× Green
+- **Emerald Flame (Neon Green):** 3x Green
 - **Dragon Amber (Gold):** Red + Green (no Blue)
 - **Astral Frost (Cyan):** Blue + Green (no Red)
 
@@ -52,6 +52,45 @@ Real-time interactive 3D OpenGL application built in C++ (OpenGL 3.3 Core Profil
 ## Build & Run Instructions (Visual Studio — Windows x64)
 
 1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd <repository-folder>
+```bash
+git clone <repository-url>
+cd <repository-folder>
+```
+2. Open `OpenGL practice.sln` in **Visual Studio 2022**.
+3. Right-click the Solution in Solution Explorer and select **Restore NuGet Packages** (restores `GLFW` and `GLM` from `packages.config`).
+4. Set the toolbar configuration to **`Release`** (or **`Debug`**) and platform to **`x64`**.
+5. Ensure Working Directory is `$(ProjectDir)` (default in VS) so shaders (`.vert` / `.frag`) are loaded from the project folder.
+6. Press **`Ctrl + F5`** (*Start Without Debugging*) to build and run.
+
+---
+
+## Project Architecture
+
+- `main.cpp` — Window lifecycle, input callbacks, multi-pass rendering loop (opaque -> translucent liquid -> additive VFX -> Fresnel glass & steam -> 2D HUD).
+- `Shader.h` — Separate `.vert`/`.frag` loader with UTF-8 BOM stripping and uniform helpers.
+- `Mesh.h` — RAII wrapper for OpenGL VAO/VBO/EBO buffers.
+- `PrimitiveFactory.h` — Procedural generators for cubes, cylinders, spheres, disks, planes, and 2D-profile lathe meshes (flasks and rings).
+- `Camera.h` — Delta-time independent FPS, Orbit, and cinematic Auto-Orbit camera controller.
+- `LightManager.h` — Multi-light controller for harmonically flickering candles and reactive potion glow.
+- `Texture.h` — Procedural mipmapped texture generator (wood, stone, leather, parchment).
+- `PotionSystem.h` — Weighted color mixing, smooth liquid level interpolation, and recipe evaluation.
+- `ParticleSystem.h` — GPU-instanced billboarded particle engine for bubbles, steam, and sparks.
+- `HudOverlay.h` — Single-draw-call batched 2D HUD overlay with embedded bitmap font atlas.
+
+---
+
+## Team Members & Contributions
+
+| Member | Group | Responsibilities |
+| :--- | :--- | :--- |
+| Yeraly Zhumagul | SE-2421 | Core OpenGL pipeline, `Mesh`, `PrimitiveFactory`, scene layout, stirrer hierarchy, integration |
+| :--- | :--- | `LightManager`, Blinn-Phong multi-light shaders, candle flicker & dynamic potion glow |
+| :--- | :--- | Procedural mipmapped `Texture`, Fresnel glass shader, `PotionSystem` color mixing |
+| :--- | :--- | `ParticleSystem` (GPU instancing), `magic_circle` shader, `HudOverlay`, demo video & testing |
+
+---
+
+## AI Use Note
+
+- **Tool used:** Google Gemini (Web).
+- **Purpose:** Creating of visualisation image of how the finished project should look, troubleshooting Visual Studio build/compilation issues (C++14 `glm::clamp`, shader file paths, UTF-8 BOM handling, and depth-sorting of translucent liquid and bubbles).
